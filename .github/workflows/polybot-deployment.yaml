@@ -1,0 +1,255 @@
+name: Polybot Microservice Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: 'Select AWS Account'
+        required: true
+        type: choice
+        default: '019273956931'
+        options:
+          - '019273956931'
+      region:
+        description: 'Select AWS Region'
+        required: true
+        type: choice
+        default: 'us-east-1: N. Virginia'
+        options:
+          - 'us-east-1: N. Virginia'
+          - 'us-east-2: Ohio'
+      environment:
+        description: 'Select Environment'
+        required: true
+        type: choice
+        default: prod
+        options:
+          - prod
+          - dev
+
+jobs:
+  GetKubeClusterRunId:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.set_run_id.outputs.run_id }}
+    steps:
+      - name: Check and install curl
+        run: |
+          if ! command -v curl &> /dev/null
+          then
+            echo "curl could not be found. Installing curl..."
+            sudo apt-get update
+            sudo apt-get install -y curl
+          else
+            echo "curl is already installed."
+          fi
+
+      - name: Check and install jq
+        run: |
+          if ! command -v jq &> /dev/null
+          then
+            echo "jq could not be found. Installing jq..."
+            sudo apt-get update
+            sudo apt-get install -y jq
+          else
+            echo "jq is already installed."
+          fi
+
+      - name: Fetch the latest successful workflow run ID from the infra deployment
+        id: set_run_id
+        run: |
+          LATEST_SUCCESS=$(curl -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/talorlik/kube_cluster_infra/actions/workflows/infra-provisioning-region.yaml/runs?status=success&per_page=1" \
+            | jq -r '.workflow_runs[0].id')
+
+          echo "run_id=$LATEST_SUCCESS" >> $GITHUB_OUTPUT
+
+          echo "The latest successful run ID is $LATEST_SUCCESS"
+
+  GetAuxInfraRunId:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.set_run_id.outputs.run_id }}
+    steps:
+      - name: Check and install curl
+        run: |
+          if ! command -v curl &> /dev/null
+          then
+            echo "curl could not be found. Installing curl..."
+            sudo apt-get update
+            sudo apt-get install -y curl
+          else
+            echo "curl is already installed."
+          fi
+
+      - name: Check and install jq
+        run: |
+          if ! command -v jq &> /dev/null
+          then
+            echo "jq could not be found. Installing jq..."
+            sudo apt-get update
+            sudo apt-get install -y jq
+          else
+            echo "jq is already installed."
+          fi
+
+      - name: Fetch the latest successful workflow run ID from the infra deployment
+        id: set_run_id
+        run: |
+          LATEST_SUCCESS=$(curl -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/talorlik/polybot_yolo5_aux_infra/actions/workflows/infra-provisioning-region.yaml/runs?status=success&per_page=1" \
+            | jq -r '.workflow_runs[0].id')
+
+          echo "run_id=$LATEST_SUCCESS" >> $GITHUB_OUTPUT
+
+          echo "The latest successful run ID is $LATEST_SUCCESS"
+
+  SetGlobals:
+    runs-on: ubuntu-latest
+    needs:
+      - GetKubeClusterRunId
+      - GetAuxInfraRunId
+    outputs:
+      region_code: ${{ steps.set_region.outputs.region_code }}
+      ecr_repository_url: ${{ steps.set_kube_values.outputs.ecr_repository_url }}
+      telegram_app_url: ${{ steps.set_kube_values.outputs.telegram_app_url }}
+      sub_domain_secret: ${{ steps.set_kube_values.outputs.sub_domain_secret }}
+      telegram_secret: ${{ steps.set_aux_infra_values.outputs.telegram_secret }}
+      sqs_queue_identify: ${{ steps.set_aux_infra_values.outputs.sqs_queue_identify }}
+      sqs_queue_results: ${{ steps.set_aux_infra_values.outputs.sqs_queue_results }}
+      bucket_name: ${{ steps.set_aux_infra_values.outputs.bucket_name }}
+      bucket_prefix: ${{ steps.set_aux_infra_values.outputs.bucket_prefix }}
+      table_name: ${{ steps.set_aux_infra_values.outputs.table_name }}
+    steps:
+      - name: Check and install jq
+        run: |
+          if ! command -v jq &> /dev/null
+          then
+            echo "jq could not be found. Installing jq..."
+            sudo apt-get update
+            sudo apt-get install -y jq
+          else
+            echo "jq is already installed."
+          fi
+
+      - name: Set region
+        id: set_region
+        run: |
+          SELECTED_REGION="${{ inputs.region }}"
+          echo "region_code=${SELECTED_REGION%%:*}" >> $GITHUB_OUTPUT
+
+      - name: Download Kube outputs file
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-kube-cluster-outputs.json"
+          github-token: ${{ secrets.GH_TOKEN }}
+          repository: talorlik/kube_cluster_infra
+          run-id: ${{ needs.GetKubeClusterRunId.outputs.run_id }}
+
+      - name: Download Aux Infra outputs file
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-aux-infra-tf-outputs.json"
+          github-token: ${{ secrets.GH_TOKEN }}
+          repository: talorlik/polybot_yolo5_aux_infra
+          run-id: ${{ needs.GetAuxInfraRunId.outputs.run_id }}
+
+      - name: Extract outputs from Kube file and set as environment variables
+        id: set_kube_values
+        env:
+          ARTIFACT_NAME: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-kube-cluster-outputs.json"
+        run: |
+          echo "ecr_repository_url=$(jq -r '.ecr_repository_url.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "telegram_app_url=https://$(jq -r '.common_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "sub_domain_secret=$(jq -r '.sub_domain_cert_body_secret_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+
+      - name: Extract outputs from Aux Infra file and set as environment variables
+        id: set_aux_infra_values
+        env:
+          ARTIFACT_NAME: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-aux-infra-tf-outputs.json"
+        run: |
+          echo "telegram_secret=$(jq -r '.telegram_secret_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "sqs_queue_identify=$(jq -r '.identify_queue_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "sqs_queue_results=$(jq -r '.results_queue_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "bucket_name=$(jq -r '.s3_bucket_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "bucket_prefix=$(jq -r '.s3_bucket_prefix.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "table_name=$(jq -r '.table_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+
+  Build:
+    runs-on: ubuntu-latest
+    needs:
+      - SetGlobals
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ needs.SetGlobals.outputs.region_code }}
+      ECR_REPOSITORY_URL: ${{ needs.SetGlobals.outputs.ecr_repository_url }}
+      IMAGE_AND_TAG: "polybot-v2:${{ github.run_number }}"
+      IMAGE_PLUS_TAG: "polybot-v2-${{ github.run_number }}"
+    steps:
+      - name: Checkout the repo code
+        uses: actions/checkout@v2
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ inputs.account }}.dkr.ecr.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com
+
+      - name: Build the image
+        run: |
+          cd app
+          docker build -t ${{ env.IMAGE_AND_TAG }} .
+
+      - name: Tag the image for ECR
+        run: |
+          docker tag ${{ env.IMAGE_AND_TAG }} ${{ env.ECR_REPOSITORY_URL }}:${{ env.IMAGE_PLUS_TAG }}
+
+      - name: Push the image to ECR
+        run: |
+          docker push ${{ env.ECR_REPOSITORY_URL }}:${{ env.IMAGE_PLUS_TAG }}
+
+  Deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - SetGlobals
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ needs.SetGlobals.outputs.region_code }}
+      ECR_REPOSITORY_URL: ${{ needs.SetGlobals.outputs.ecr_repository_url }}
+      IMAGE_PLUS_TAG: "polybot-v2-${{ github.run_number }}"
+    steps:
+      - name: Checkout the repo code
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Update Helm Values
+        run: |
+          sed -i "s/REPLACE_ECR_REPOSITORY/${{ env.ECR_REPOSITORY_URL }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_LATEST_TAG/${{ env.IMAGE_PLUS_TAG }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_REGION/${{ env.AWS_DEFAULT_REGION }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TELEGRAM_URL/${{ needs.SetGlobals.outputs.telegram_app_url }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TELEGRAM_SECRET/${{ needs.SetGlobals.outputs.telegram_secret }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_DOMAIN_SECRET/${{ needs.SetGlobals.outputs.sub_domain_secret }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_IDENTIFY/${{ needs.SetGlobals.outputs.sqs_queue_identify }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_RESULTS/${{ needs.SetGlobals.outputs.sqs_queue_results }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_BUCKET/${{ needs.SetGlobals.outputs.bucket_name }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_PREFIX/${{ needs.SetGlobals.outputs.bucket_prefix }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TABLE/${{ needs.SetGlobals.outputs.table_name }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+
+      - name: Setup Git configuration
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit changes
+        run: |
+          git add .
+          git commit -m "Update Polybot. Automated commit from GitHub Actions."
+
+      - name: Push changes
+        run: |
+          git push "https://${GITHUB_ACTOR}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}

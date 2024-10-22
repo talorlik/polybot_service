@@ -1,0 +1,106 @@
+# Default values for polybot.
+
+# Replica count (number of pods to run)
+replicaCount: 2  # Increased to 2 for high availability, as Polybot is a critical application
+
+# Container image settings
+image:
+  repository: REPLACE_ECR_REPOSITORY  # Replace with the actual ECR repository URI for Polybot
+  pullPolicy: Always
+  tag: "REPLACE_LATEST_TAG"  # You may set a specific version or leave blank for using appVersion
+
+env:
+  AWS_DEFAULT_REGION: !!string "REPLACE_REGION"
+  TELEGRAM_APP_URL: !!string "REPLACE_TELEGRAM_URL"
+  TELEGRAM_SECRET: !!string "REPLACE_TELEGRAM_SECRET"
+  SUB_DOMAIN_SECRET: !!string "REPLACE_DOMAIN_SECRET"
+  SQS_QUEUE_IDENTIFY: !!string "REPLACE_IDENTIFY"
+  SQS_QUEUE_RESULTS: !!string "REPLACE_RESULTS"
+  BUCKET_NAME: !!string "REPLACE_BUCKET"
+  BUCKET_PREFIX: !!string "REPLACE_PREFIX"
+  TABLE_NAME: !!string "REPLACE_TABLE"
+
+# Image pull secrets (for private registry like ECR)
+imagePullSecrets:
+  - name: ecr-creds-secret  # Assuming ECR uses credentials stored in a Kubernetes secret
+
+# Overrides for chart name and full name
+nameOverride: ""
+fullnameOverride: ""
+
+# Service account settings
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: "polybot-sa"
+
+# Pod annotations (used for monitoring, tracking, etc.)
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+
+# Pod labels for custom labeling
+podLabels:
+  app: "polybot"
+
+# Pod security settings (no privileged access)
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Kubernetes Service settings
+service:
+  name: "polybot-service"
+  type: ClusterIP
+  port: 8443
+
+# Additional labels for identification by the Ingress
+serviceLabels:
+  ingress-ready: "true"
+  app: "polybot"
+
+# Ingress settings
+ingress:
+  enabled: false  # Do not create Ingress via Helm, using pre-created one
+  className: "alb"
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    kubernetes.io/service-name: "ingress-nginx/ingress-nginx-controller"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+# Resource requests and limits for the Polybot container
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Liveness and readiness probes to ensure application health
+livenessProbe:
+  httpGet:
+    path: /health  # Assuming there's a health endpoint in your application
+    port: 8443
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /ready  # Assuming there's a readiness endpoint
+    port: 8443
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+# Autoscaling settings for dynamic workload management
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
