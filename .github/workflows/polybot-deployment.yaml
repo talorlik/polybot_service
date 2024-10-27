@@ -215,6 +215,14 @@ jobs:
       AWS_DEFAULT_REGION: ${{ needs.SetGlobals.outputs.region_code }}
       ECR_REPOSITORY_URL: ${{ needs.SetGlobals.outputs.ecr_repository_url }}
       IMAGE_PLUS_TAG: "polybot-v2-${{ github.run_number }}"
+      TELEGRAM_APP_URL: ${{ needs.SetGlobals.outputs.telegram_app_url }}
+      TELEGRAM_SECRET: ${{ needs.SetGlobals.outputs.telegram_secret }}
+      SUB_DOMAIN_SECRET: ${{ needs.SetGlobals.outputs.sub_domain_secret }}
+      SQS_QUEUE_IDENTIFY: ${{ needs.SetGlobals.outputs.sqs_queue_identify }}
+      SQS_QUEUE_RESULTS: ${{ needs.SetGlobals.outputs.sqs_queue_results }}
+      BUCKET_NAME: ${{ needs.SetGlobals.outputs.bucket_name }}
+      BUCKET_PREFIX: ${{ needs.SetGlobals.outputs.bucket_prefix }}
+      TABLE_NAME: ${{ needs.SetGlobals.outputs.table_name }}
     steps:
       - name: Checkout the repo code
         uses: actions/checkout@v2
@@ -227,14 +235,14 @@ jobs:
           sed -i "s/REPLACE_ECR_REPOSITORY/${{ env.ECR_REPOSITORY_URL }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
           sed -i "s/REPLACE_LATEST_TAG/${{ env.IMAGE_PLUS_TAG }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
           sed -i "s/REPLACE_REGION/${{ env.AWS_DEFAULT_REGION }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_TELEGRAM_URL/${{ needs.SetGlobals.outputs.telegram_app_url }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_TELEGRAM_SECRET/${{ needs.SetGlobals.outputs.telegram_secret }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_DOMAIN_SECRET/${{ needs.SetGlobals.outputs.sub_domain_secret }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_IDENTIFY/${{ needs.SetGlobals.outputs.sqs_queue_identify }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_RESULTS/${{ needs.SetGlobals.outputs.sqs_queue_results }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_BUCKET/${{ needs.SetGlobals.outputs.bucket_name }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_PREFIX/${{ needs.SetGlobals.outputs.bucket_prefix }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
-          sed -i "s/REPLACE_TABLE/${{ needs.SetGlobals.outputs.table_name }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TELEGRAM_URL/${{ env.TELEGRAM_APP_URL }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TELEGRAM_SECRET/${{ env.TELEGRAM_SECRET }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_DOMAIN_SECRET/${{ env.SUB_DOMAIN_SECRET }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_IDENTIFY/${{ env.SQS_QUEUE_IDENTIFY }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_RESULTS/${{ env.SQS_QUEUE_RESULTS }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_BUCKET/${{ env.BUCKET_NAME }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_PREFIX/${{ env.BUCKET_PREFIX }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
+          sed -i "s/REPLACE_TABLE/${{ env.TABLE_NAME }}/g" ${{ github.workspace }}/helm/polybot/values.yaml
 
       - name: Setup Git configuration
         run: |
