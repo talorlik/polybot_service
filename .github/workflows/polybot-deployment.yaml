@@ -1,26 +1,28 @@
 name: Polybot Microservice Deployment
 
 on:
-  workflow_dispatch:
-    inputs:
-      region:
-        description: 'Select AWS Region'
-        required: true
-        type: choice
-        default: 'us-east-1: N. Virginia'
-        options:
-          - 'us-east-1: N. Virginia'
-          - 'us-east-2: Ohio'
-      environment:
-        description: 'Select Environment'
-        required: true
-        type: choice
-        default: prod
-        options:
-          - prod
-          - dev
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'app/python/**'
 
 jobs:
+  SetEnvironment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set_env.outputs.environment }}
+    steps:
+      - name: Set Environment Based on Branch
+        id: set_env
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF}" == "refs/heads/dev" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+
   GetKubeClusterRunId:
     runs-on: ubuntu-latest
     outputs:
@@ -102,10 +104,11 @@ jobs:
   SetGlobals:
     runs-on: ubuntu-latest
     needs:
+      - SetEnvironment
       - GetKubeClusterRunId
       - GetAuxInfraRunId
     outputs:
-      region_code: ${{ steps.set_region.outputs.region_code }}
+      region_code: ${{ steps.set_kube_values.outputs.region }}
       aws_account: ${{ steps.set_kube_values.outputs.aws_account }}
       ecr_repository_url: ${{ steps.set_kube_values.outputs.ecr_repository_url }}
       telegram_app_url: ${{ steps.set_kube_values.outputs.telegram_app_url }}
@@ -128,16 +131,10 @@ jobs:
             echo "jq is already installed."
           fi
 
-      - name: Set region
-        id: set_region
-        run: |
-          SELECTED_REGION="${{ inputs.region }}"
-          echo "region_code=${SELECTED_REGION%%:*}" >> $GITHUB_OUTPUT
-
       - name: Download Kube outputs file
         uses: actions/download-artifact@v4
         with:
-          name: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-kube-cluster-outputs.json"
+          name: "${{ needs.SetEnvironment.outputs.environment }}-kube-cluster-outputs.json"
           github-token: ${{ secrets.GH_TOKEN }}
           repository: talorlik/kube_cluster_infra
           run-id: ${{ needs.GetKubeClusterRunId.outputs.run_id }}
@@ -145,7 +142,7 @@ jobs:
       - name: Download Aux Infra outputs file
         uses: actions/download-artifact@v4
         with:
-          name: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-aux-infra-tf-outputs.json"
+          name: "${{ needs.SetEnvironment.outputs.environment }}-aux-infra-tf-outputs.json"
           github-token: ${{ secrets.GH_TOKEN }}
           repository: talorlik/polybot_yolo5_aux_infra
           run-id: ${{ needs.GetAuxInfraRunId.outputs.run_id }}
@@ -153,9 +150,10 @@ jobs:
       - name: Extract outputs from Kube file and set as environment variables
         id: set_kube_values
         env:
-          ARTIFACT_NAME: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-kube-cluster-outputs.json"
+          ARTIFACT_NAME: "${{ needs.SetEnvironment.outputs.environment }}-kube-cluster-outputs.json"
         run: |
           echo "aws_account=$(jq -r '.aws_account.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
+          echo "region=$(jq -r '.region.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
           echo "ecr_repository_url=$(jq -r '.ecr_repository_url.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
           echo "telegram_app_url=https://$(jq -r '.common_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
           echo "sub_domain_secret=$(jq -r '.sub_domain_cert_body_secret_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
@@ -163,7 +161,7 @@ jobs:
       - name: Extract outputs from Aux Infra file and set as environment variables
         id: set_aux_infra_values
         env:
-          ARTIFACT_NAME: "${{ steps.set_region.outputs.region_code }}-${{ inputs.environment }}-aux-infra-tf-outputs.json"
+          ARTIFACT_NAME: "${{ needs.SetEnvironment.outputs.environment }}-aux-infra-tf-outputs.json"
         run: |
           echo "telegram_secret=$(jq -r '.telegram_secret_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
           echo "sqs_queue_identify=$(jq -r '.identify_queue_name.value' ${{ github.workspace }}/${{ env.ARTIFACT_NAME }})" >> $GITHUB_OUTPUT
